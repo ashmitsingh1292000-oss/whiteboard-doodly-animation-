@@ -10,6 +10,7 @@ import { getBoardStyle, getTransitionStyle } from '../../utils/animation';
 import { getEffectiveFontFamily } from '../../services/fontService';
 import { useMobile } from '../../hooks/useMobile';
 import { getEntryEffectStyle } from '../canvas/ContextMenu';
+import { exportAnimationAsMP4, renderFrameToDataURI } from '../../utils/videoExport';
 
 // ─── Audio filter helper (mirrored from AudioTab) ─────────────────────────────
 function buildFilterChain(ctx, filterId) {
@@ -146,6 +147,8 @@ export default function PreviewModal() {
   const [canvasKey, setCanvasKey] = useState(0);
   const [speedIdx,  setSpeedIdx]  = useState(DEFAULT_SPEED_IDX);
   const [audioMuted, setAudioMuted] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState(0);
 
   const speed = SPEED_STEPS[speedIdx];
 
@@ -269,6 +272,116 @@ export default function PreviewModal() {
     // No restart needed — AnimatedTextReveal reads duration/delay via live
     // refs, so the running rAF loop picks up the new speed on the next frame.
   };
+
+  const handleExportMP4 = useCallback(async () => {
+    if (!canvasRef.current || exporting) return;
+
+    setExporting(true);
+    setExportProgress(0);
+
+    try {
+      const fps = 24;
+      const frameDuration = 1000 / fps; // milliseconds per frame
+      const frames = [];
+      
+      // Get total animation duration
+      const scenes = project?.scenes ?? [];
+      let totalDuration = 0;
+      scenes.forEach(scene => {
+        totalDuration += getSequentialDuration(scene.graphics, 1);
+      });
+
+      // Calculate number of frames needed
+      const totalFrames = Math.ceil((totalDuration * 1000) / frameDuration);
+
+      console.log('Capturing animation frames...', { totalDuration, totalFrames, fps });
+
+      // Reset animation state
+      reset();
+      setPlaying(false);
+      setSceneIdx(0);
+      setCanvasKey(k => k + 1);
+
+      // Wait for scene to render
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Start playback and capture frames
+      await new Promise(resolve => {
+        let capturedFrames = 0;
+        let lastCaptureTime = 0;
+        let playbackStartTime = null;
+
+        const captureFrame = async () => {
+          const currentTime = performance.now() - (playbackStartTime || performance.now());
+          
+          // Capture frame if enough time has passed
+          if (currentTime - lastCaptureTime >= frameDuration * 0.9) {
+            const frameData = await renderFrameToDataURI(canvasRef.current, 1024, 768);
+            if (frameData) {
+              frames.push({
+                frameData,
+                duration: frameDuration / 1000,
+                index: capturedFrames,
+              });
+              capturedFrames++;
+              lastCaptureTime = currentTime;
+              setExportProgress(Math.min(Math.round((capturedFrames / totalFrames) * 100), 100));
+            }
+
+            if (capturedFrames >= totalFrames || currentTime > totalDuration * 1000 + 1000) {
+              resolve();
+              return;
+            }
+          }
+
+          requestAnimationFrame(captureFrame);
+        };
+
+        // Start animation playback
+        playStartRef.current = performance.now();
+        playbackStartTime = performance.now();
+        setPlaying(true);
+        
+        // Start audio if exists
+        const tracks = project?.audioTracks ?? [];
+        if (tracks.length > 0) startAudioTracks(tracks);
+        
+        scheduleNextScene(0);
+        
+        // Start frame capture loop
+        requestAnimationFrame(captureFrame);
+      });
+
+      // Stop animation
+      stopAllAudio();
+      setPlaying(false);
+
+      console.log('Frames captured, sending to backend...', { count: frames.length });
+
+      if (frames.length === 0) {
+        throw new Error('No frames captured for export');
+      }
+
+      // Export to MP4
+      await exportAnimationAsMP4(frames, {
+        fps,
+        width: 1024,
+        height: 768,
+        title: project?.title || 'OpenDoodler Animation',
+      });
+
+      useStore.getState().showToast('Animation exported to MP4 ✓', 'success');
+      setExportProgress(0);
+    } catch (err) {
+      console.error('Export error:', err);
+      useStore.getState().showToast(`Export failed: ${err.message}`, 'error');
+    } finally {
+      setExporting(false);
+      setExportProgress(0);
+      stopAllAudio();
+      setPlaying(false);
+    }
+  }, [project, exporting, startAudioTracks, stopAllAudio]);
 
   return (
     <div
@@ -433,6 +546,25 @@ export default function PreviewModal() {
               borderRadius: 8, color: '#94a3b8', cursor: 'pointer',
             }}
           >↺ Reset</button>
+
+          <button
+            onClick={handleExportMP4}
+            disabled={exporting}
+            style={{
+              padding: '9px 24px', fontWeight: 600, fontSize: 13,
+              background: exporting ? '#334155' : 'rgba(59, 130, 246, 0.2)',
+              border: '1px solid #3b82f6',
+              borderRadius: 8, color: exporting ? '#64748b' : '#3b82f6',
+              cursor: exporting ? 'not-allowed' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+            title="Export animation as MP4"
+          >
+            {exporting 
+              ? `📹 Exporting… ${exportProgress}%`
+              : '📹 Export MP4'
+            }
+          </button>
 
           {/* Speed slider */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

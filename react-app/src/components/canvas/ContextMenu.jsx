@@ -15,6 +15,14 @@ export const ENTRY_EFFECTS = [
   { id: 'rubberBand',   label: 'Rubber Band',    icon: '🎸', desc: 'Stretches and snaps' },
 ];
 
+export const REVEAL_EFFECTS = [
+  { id: 'wipe-right',   label: '→ Wipe Right',   icon: '➡',  desc: 'Sweeps from left' },
+  { id: 'wipe-down',    label: '↓ Wipe Down',    icon: '⬇',  desc: 'Sweeps from top' },
+  { id: 'fade',         label: '✦ Fade In',      icon: '👁',  desc: 'Dissolve into view' },
+  { id: 'zoom',         label: '⊕ Zoom In',      icon: '🔍', desc: 'Scales up from center' },
+  { id: 'scribble',     label: '✏ Scribble',     icon: '✏',  desc: 'Hand-drawn outline' },
+];
+
 const KEYFRAMES_CSS = `
 @keyframes wb-fadeIn       { from{opacity:0}to{opacity:1} }
 @keyframes wb-slideInLeft  { from{opacity:0;transform:translateX(-60px)}to{opacity:1;transform:translateX(0)} }
@@ -66,11 +74,13 @@ export function getEntryEffectStyle(effectId, durationSec = 0.6) {
 }
 
 // ─── Desktop flyout context menu ────────────────────────────────────────────
-function DesktopMenu({ x, y, graphicId, graphic, currentEffect, onEffectClick, onDelete, onDuplicate, onClose }) {
+function DesktopMenu({ x, y, graphicId, graphic, currentEffect, onEffectClick, currentReveal, isImageGraphic, onRevealClick, onDelete, onDuplicate, onClose }) {
   const menuRef     = useRef(null);
   const [showEffects, setShowEffects] = useState(false);
+  const [showReveal, setShowReveal]   = useState(false);
   const [subPos, setSubPos]           = useState({ top: -4, left: '100%' });
   const effectRowRef = useRef(null);
+  const revealRowRef = useRef(null);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -181,6 +191,69 @@ function DesktopMenu({ x, y, graphicId, graphic, currentEffect, onEffectClick, o
 
       <Divider />
 
+      {/* Reveal Effect (for images only) */}
+      {isImageGraphic && (
+        <>
+          <div ref={revealRowRef}
+            onMouseEnter={() => setShowReveal(true)}
+            onMouseLeave={() => setShowReveal(false)}
+            style={{ ...itemBase, background: showReveal ? '#2d3f55' : '' }}>
+            <span style={{ fontSize: 16 }}>✏</span>
+            <span style={{ flex: 1 }}>Reveal Effect</span>
+            <span style={{ color: '#64748b', fontSize: 11, maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {currentReveal ? REVEAL_EFFECTS.find(e => e.id === currentReveal)?.label : 'Wipe Right'}
+            </span>
+            <span style={{ color: '#64748b', fontSize: 10, marginLeft: 4 }}>▶</span>
+
+            {/* Flyout submenu for reveal effects */}
+            {showReveal && (
+              <div
+                className="wb-submenu-scroll"
+                onMouseEnter={() => setShowReveal(true)}
+                onMouseLeave={() => setShowReveal(false)}
+                style={{
+                  position: 'fixed',
+                  top: adjY + subPos.top,
+                  ...(subPos.left !== undefined
+                    ? { left: adjX + (typeof subPos.left === 'number' ? subPos.left : menuW) }
+                    : { right: window.innerWidth - adjX }),
+                  background: '#1e293b', border: '1px solid #334155', borderRadius: 10,
+                  boxShadow: '0 12px 40px rgba(0,0,0,0.55)', minWidth: subW,
+                  zIndex: 10000, animation: 'wb-fadeIn 0.1s ease both',
+                  maxHeight: subMaxH, overflowY: 'auto', overflowX: 'hidden',
+                }}>
+                <div style={{ padding: '8px 14px 4px', color: '#64748b', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', position: 'sticky', top: 0, background: '#1e293b', zIndex: 1 }}>
+                  Image Reveal
+                </div>
+                <div style={{ height: 1, background: '#334155', marginBottom: 4 }} />
+                {REVEAL_EFFECTS.map(eff => {
+                  const isActive = currentReveal === eff.id;
+                  return (
+                    <div key={eff.id} onClick={() => onRevealClick(eff.id)}
+                      onMouseEnter={e => e.currentTarget.style.background = '#2d3f55'}
+                      onMouseLeave={e => e.currentTarget.style.background = isActive ? 'rgba(59,130,246,0.18)' : ''}
+                      style={{
+                        ...itemBase, margin: '1px 4px',
+                        background: isActive ? 'rgba(59,130,246,0.18)' : '',
+                        borderLeft: isActive ? '3px solid #3b82f6' : '3px solid transparent',
+                      }}>
+                      <span style={{ fontSize: 15, width: 22, textAlign: 'center', flexShrink: 0 }}>{eff.icon}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: isActive ? 700 : 500, color: isActive ? '#93c5fd' : '#e2e8f0' }}>{eff.label}</div>
+                        <div style={{ color: '#64748b', fontSize: 11, marginTop: 1 }}>{eff.desc}</div>
+                      </div>
+                      {isActive && <span style={{ color: '#3b82f6', fontSize: 14, flexShrink: 0 }}>✓</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <Divider />
+        </>
+      )}
+
       {/* Duplicate */}
       <MenuItem icon="⧉" label="Duplicate" onClick={onDuplicate} />
 
@@ -193,8 +266,8 @@ function DesktopMenu({ x, y, graphicId, graphic, currentEffect, onEffectClick, o
 }
 
 // ─── Mobile bottom sheet ─────────────────────────────────────────────────────
-function MobileSheet({ graphicId, graphic, currentEffect, onEffectClick, onDelete, onDuplicate, onClose }) {
-  const [view, setView] = useState('main'); // 'main' | 'effects'
+function MobileSheet({ graphicId, graphic, currentEffect, onEffectClick, currentReveal, isImageGraphic, onRevealClick, onDelete, onDuplicate, onClose }) {
+  const [view, setView] = useState('main'); // 'main' | 'effects' | 'reveal'
   const [closing, setClosing] = useState(false);
   const sheetRef = useRef(null);
 
@@ -249,7 +322,7 @@ function MobileSheet({ graphicId, graphic, currentEffect, onEffectClick, onDelet
 
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 20px 12px' }}>
-          {view === 'effects' ? (
+          {view !== 'main' ? (
             <button onClick={() => setView('main')}
               style={{ background: 'none', border: 'none', color: '#3b82f6', fontSize: 15, cursor: 'pointer', padding: '4px 0', fontFamily: 'system-ui', display: 'flex', alignItems: 'center', gap: 4 }}>
               ‹ Back
@@ -285,6 +358,25 @@ function MobileSheet({ graphicId, graphic, currentEffect, onEffectClick, onDelet
               <span style={{ color: '#64748b', fontSize: 18 }}>›</span>
             </div>
 
+            {/* Reveal Effect (for images only) */}
+            {isImageGraphic && (
+              <div
+                onTouchEnd={() => setView('reveal')}
+                onClick={() => setView('reveal')}
+                style={{ ...itemStyle, justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <span style={{ fontSize: 20 }}>✏</span>
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Reveal Effect</div>
+                    <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      {currentReveal ? REVEAL_EFFECTS.find(e => e.id === currentReveal)?.label : 'Wipe Right'}
+                    </div>
+                  </div>
+                </div>
+                <span style={{ color: '#64748b', fontSize: 18 }}>›</span>
+              </div>
+            )}
+
             {/* Duplicate */}
             <div onTouchEnd={() => { onDuplicate(); close(); }} onClick={() => { onDuplicate(); close(); }} style={itemStyle}>
               <span style={{ fontSize: 20 }}>⧉</span>
@@ -315,6 +407,44 @@ function MobileSheet({ graphicId, graphic, currentEffect, onEffectClick, onDelet
                   <div key={eff.id}
                     onClick={() => { onEffectClick(eff.id); close(); }}
                     onTouchEnd={() => { onEffectClick(eff.id); close(); }}
+                    style={{
+                      background: isActive ? 'rgba(59,130,246,0.2)' : '#1e293b',
+                      border: isActive ? '2px solid #3b82f6' : '2px solid #334155',
+                      borderRadius: 12, padding: '14px 12px',
+                      cursor: 'pointer', display: 'flex', flexDirection: 'column',
+                      alignItems: 'flex-start', gap: 6, userSelect: 'none',
+                      transition: 'all 0.15s',
+                    }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                      <span style={{ fontSize: 22 }}>{eff.icon}</span>
+                      {isActive && <span style={{ color: '#3b82f6', fontSize: 16 }}>✓</span>}
+                    </div>
+                    <div style={{ fontFamily: 'system-ui', fontSize: 13, fontWeight: isActive ? 700 : 600, color: isActive ? '#93c5fd' : '#e2e8f0' }}>
+                      {eff.label}
+                    </div>
+                    <div style={{ fontFamily: 'system-ui', fontSize: 11, color: '#64748b', lineHeight: 1.3 }}>
+                      {eff.desc}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Reveal grid view (for images only) */}
+        {view === 'reveal' && isImageGraphic && (
+          <div style={{ overflowY: 'auto', flex: 1, padding: '0 0 20px' }}>
+            <div style={{ padding: '0 16px 8px', color: '#64748b', fontSize: 12, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+              Choose Image Reveal
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, padding: '0 12px' }}>
+              {REVEAL_EFFECTS.map(eff => {
+                const isActive = currentReveal === eff.id;
+                return (
+                  <div key={eff.id}
+                    onClick={() => { onRevealClick(eff.id); close(); }}
+                    onTouchEnd={() => { onRevealClick(eff.id); close(); }}
                     style={{
                       background: isActive ? 'rgba(59,130,246,0.2)' : '#1e293b',
                       border: isActive ? '2px solid #3b82f6' : '2px solid #334155',
@@ -378,12 +508,19 @@ export default function ContextMenu({ x, y, graphicId, onClose }) {
 
   ensureKeyframes();
 
-  const scene        = getSelectedScene();
-  const graphic      = scene?.graphics.find(g => g.id === graphicId);
+  const scene         = getSelectedScene();
+  const graphic       = scene?.graphics.find(g => g.id === graphicId);
   const currentEffect = graphic?.entryEffect ?? 'none';
+  const currentReveal = graphic?.revealEffect ?? 'wipe-right';
+  const isImageGraphic = graphic?.type === 'image';
 
   const handleEffectClick = (effectId) => {
     updateGraphicProps(graphicId, { entryEffect: effectId });
+    onClose();
+  };
+
+  const handleRevealClick = (revealId) => {
+    updateGraphicProps(graphicId, { revealEffect: revealId });
     onClose();
   };
 
@@ -403,6 +540,9 @@ export default function ContextMenu({ x, y, graphicId, onClose }) {
         graphic={graphic}
         currentEffect={currentEffect}
         onEffectClick={handleEffectClick}
+        currentReveal={currentReveal}
+        isImageGraphic={isImageGraphic}
+        onRevealClick={handleRevealClick}
         onDelete={handleDelete}
         onDuplicate={handleDuplicate}
         onClose={onClose}
@@ -417,6 +557,9 @@ export default function ContextMenu({ x, y, graphicId, onClose }) {
       graphic={graphic}
       currentEffect={currentEffect}
       onEffectClick={handleEffectClick}
+      currentReveal={currentReveal}
+      isImageGraphic={isImageGraphic}
+      onRevealClick={handleRevealClick}
       onDelete={handleDelete}
       onDuplicate={handleDuplicate}
       onClose={onClose}

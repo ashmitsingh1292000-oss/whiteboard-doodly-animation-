@@ -165,6 +165,7 @@ export default function GraphicListItem({ graphic, isSelected, onDragStart, onDr
                 }}
               >
                 <option value="draw">✏️ Draw (Realistic)</option>
+                <option value="scribble">✏ Scribble</option>
                 <option value="wipe-right">→ Wipe Right</option>
                 <option value="wipe-down">↓ Wipe Down</option>
                 <option value="fade">✦ Fade In</option>

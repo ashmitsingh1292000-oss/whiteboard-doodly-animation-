@@ -282,7 +282,7 @@ export const useStore = create((set, get) => ({
     });
   },
 
-  addImageGraphic({ src, name, width, height }) {
+  addImageGraphic({ src, name, width, height, revealEffect }) {
     set(state => {
       const hist = pushHistory(state);
       return produce({ ...state, ...hist }, draft => {
@@ -295,6 +295,7 @@ export const useStore = create((set, get) => ({
           width:  width  ?? 200,
           height: height ?? 150,
         });
+        if (revealEffect) g.revealEffect = revealEffect;
         scene.graphics.push(g);
         draft.selectedGraphicId = g.id;
       });

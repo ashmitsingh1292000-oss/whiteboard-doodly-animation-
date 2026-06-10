@@ -7,7 +7,9 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     HF_HOME=/app/hf_cache
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # CPU-only torch (~800MB vs 2.5GB for CUDA) — fine for Codespaces
@@ -20,7 +22,10 @@ RUN pip install --upgrade pip \
         "diffusers>=0.28.0" \
         "transformers>=4.41.0" \
         "accelerate>=0.30.0" \
-        "Pillow>=10.3.0"
+        "Pillow>=10.3.0" \
+        "moviepy>=1.0.3" \
+        "numpy>=1.24.0" \
+        "opencv-python>=4.8.0"
 
 COPY main.py .
 

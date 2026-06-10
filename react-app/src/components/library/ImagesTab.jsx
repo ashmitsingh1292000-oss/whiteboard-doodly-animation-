@@ -6,6 +6,7 @@ const REVEAL_EFFECTS = [
   { value: 'wipe-down',  label: '↓ Wipe Down'  },
   { value: 'fade',       label: '✦ Fade In'     },
   { value: 'zoom',       label: '⊕ Zoom In'     },
+  { value: 'scribble',   label: '✏ Scribble'    },
 ];
 
 export default function ImagesTab() {

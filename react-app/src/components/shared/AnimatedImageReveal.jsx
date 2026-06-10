@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 /**
  * AnimatedImageReveal
  *
- * revealEffect === 'draw'  →  Realistic hand-drawing effect:
- *   1. Downsamples the image to an off-screen canvas.
- *   2. Runs Sobel edge-detection to find outlines.
- *   3. Traces connected edge pixels into polyline paths.
- *   4. Renders those paths on a <canvas> with strokeDashoffset animation,
- *      so strokes grow exactly like SVG drawings.
- *   5. The original <img> fades in underneath as the draw completes.
+ * revealEffect === 'draw' or 'scribble'  →  Hand-scribble effect:
+ * 1. Downsamples the image to an off-screen canvas.
+ * 2. Runs Sobel edge-detection to find outlines.
+ * 3. Traces connected edge pixels into polyline paths.
+ * 4. Renders those paths on a <canvas> with strokeDashoffset animation,
+ * so strokes grow exactly like SVG drawings.
+ * 5. The original <img> fades in underneath as the scribble completes.
  *
  * All other effects keep the original clip-path / fade / zoom behaviour.
  *
@@ -35,9 +35,9 @@ export default function AnimatedImageReveal({
   const [progress,  setProgress]  = useState(playing ? 0 : 1);
   const [drawReady, setDrawReady] = useState(false);
 
-  // ── Build stroke data whenever src changes (draw mode only) ──────────────
+  // ── Build stroke data whenever src changes (draw/scribble mode only) ──────────────
   useEffect(() => {
-    if (revealEffect !== 'draw') return;
+    if (revealEffect !== 'draw' && revealEffect !== 'scribble') return;
     setDrawReady(false);
     strokesRef.current = null;
 
@@ -53,79 +53,101 @@ export default function AnimatedImageReveal({
 
       const { data } = ctx.getImageData(0, 0, W, H);
 
-      // ── Sobel edge detection ──────────────────────────────────────────────
-      const gray = new Float32Array(W * H);
-      for (let i = 0; i < W * H; i++) {
-        const p = i * 4;
-        gray[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
-      }
-
-      const edge = new Uint8Array(W * H);
-      const THRESHOLD = 28;
-      for (let y = 1; y < H - 1; y++) {
-        for (let x = 1; x < W - 1; x++) {
-          const idx = y * W + x;
-          const gx =
-            -gray[(y-1)*W+(x-1)] + gray[(y-1)*W+(x+1)]
-            - 2*gray[y*W+(x-1)]  + 2*gray[y*W+(x+1)]
-            - gray[(y+1)*W+(x-1)]+ gray[(y+1)*W+(x+1)];
-          const gy =
-            -gray[(y-1)*W+(x-1)] - 2*gray[(y-1)*W+x] - gray[(y-1)*W+(x+1)]
-            + gray[(y+1)*W+(x-1)] + 2*gray[(y+1)*W+x] + gray[(y+1)*W+(x+1)];
-          edge[idx] = Math.sqrt(gx*gx + gy*gy) > THRESHOLD ? 1 : 0;
-        }
-      }
-
-      // ── Trace connected strokes via BFS walks ─────────────────────────────
-      const visited = new Uint8Array(W * H);
-      const DIRS = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
       const strokes = [];
 
-      for (let sy = 0; sy < H; sy++) {
-        for (let sx = 0; sx < W; sx++) {
-          const start = sy * W + sx;
-          if (!edge[start] || visited[start]) continue;
-
-          // Walk greedily along connected edge pixels
-          const pts = [{ x: sx, y: sy }];
-          visited[start] = 1;
-          let cx = sx, cy = sy;
-
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            let found = false;
-            // prefer 4-connected first for smoother strokes
-            for (const [dx, dy] of DIRS) {
-              const nx = cx + dx, ny = cy + dy;
-              if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
-              const ni = ny * W + nx;
-              if (edge[ni] && !visited[ni]) {
-                visited[ni] = 1;
-                cx = nx; cy = ny;
-                pts.push({ x: cx, y: cy });
-                found = true;
-                break;
-              }
+      if (revealEffect === 'scribble') {
+        // ── Scribble: horizontal scan lines from top-left to bottom-right ────
+        // Create horizontal strokes that sweep left to right, top to bottom
+        const lineSpacing = 8; // pixels between scan lines
+        for (let y = 0; y < H; y += lineSpacing) {
+          const pts = [];
+          for (let x = 0; x < W; x += 2) {
+            pts.push({ x, y });
+          }
+          if (pts.length > 1) {
+            let len = 0;
+            const cumLen = [0];
+            for (let i = 1; i < pts.length; i++) {
+              len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+              cumLen.push(len);
             }
-            if (!found) break;
+            strokes.push({ pts, length: len, cumLen });
           }
-
-          if (pts.length < 3) continue; // skip noise
-
-          // Compute cumulative arc length
-          let len = 0;
-          const cumLen = [0];
-          for (let i = 1; i < pts.length; i++) {
-            len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
-            cumLen.push(len);
-          }
-
-          strokes.push({ pts, length: len, cumLen });
         }
-      }
+      } else {
+        // ── Draw: Sobel edge detection ────────────────────────────────────────
+        const gray = new Float32Array(W * H);
+        for (let i = 0; i < W * H; i++) {
+          const p = i * 4;
+          gray[i] = 0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2];
+        }
 
-      // Sort longest strokes first (more impactful reveal)
-      strokes.sort((a, b) => b.length - a.length);
+        const edge = new Uint8Array(W * H);
+        const THRESHOLD = 28;
+        for (let y = 1; y < H - 1; y++) {
+          for (let x = 1; x < W - 1; x++) {
+            const idx = y * W + x;
+            const gx =
+              -gray[(y-1)*W+(x-1)] + gray[(y-1)*W+(x+1)]
+              - 2*gray[y*W+(x-1)]  + 2*gray[y*W+(x+1)]
+              - gray[(y+1)*W+(x-1)]+ gray[(y+1)*W+(x+1)];
+            const gy =
+              -gray[(y-1)*W+(x-1)] - 2*gray[(y-1)*W+x] - gray[(y-1)*W+(x+1)]
+              + gray[(y+1)*W+(x-1)] + 2*gray[(y+1)*W+x] + gray[(y+1)*W+(x+1)];
+            edge[idx] = Math.sqrt(gx*gx + gy*gy) > THRESHOLD ? 1 : 0;
+          }
+        }
+
+        // ── Trace connected strokes via BFS walks ─────────────────────────────
+        const visited = new Uint8Array(W * H);
+        const DIRS = [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+
+        for (let sy = 0; sy < H; sy++) {
+          for (let sx = 0; sx < W; sx++) {
+            const start = sy * W + sx;
+            if (!edge[start] || visited[start]) continue;
+
+            // Walk greedily along connected edge pixels
+            const pts = [{ x: sx, y: sy }];
+            visited[start] = 1;
+            let cx = sx, cy = sy;
+
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+              let found = false;
+              // prefer 4-connected first for smoother strokes
+              for (const [dx, dy] of DIRS) {
+                const nx = cx + dx, ny = cy + dy;
+                if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
+                const ni = ny * W + nx;
+                if (edge[ni] && !visited[ni]) {
+                  visited[ni] = 1;
+                  cx = nx; cy = ny;
+                  pts.push({ x: cx, y: cy });
+                  found = true;
+                  break;
+                }
+              }
+              if (!found) break;
+            }
+
+            if (pts.length < 3) continue; // skip noise
+
+            // Compute cumulative arc length
+            let len = 0;
+            const cumLen = [0];
+            for (let i = 1; i < pts.length; i++) {
+              len += Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y);
+              cumLen.push(len);
+            }
+
+            strokes.push({ pts, length: len, cumLen });
+          }
+        } // <-- Fixed: Closed the sy loop properly
+
+        // Sort longest strokes first (more impactful reveal)
+        strokes.sort((a, b) => b.length - a.length);
+      }
 
       strokesRef.current = strokes;
       totalLenRef.current = strokes.reduce((s, k) => s + k.length, 0);
@@ -138,7 +160,7 @@ export default function AnimatedImageReveal({
   useEffect(() => {
     cancelAnimationFrame(rafRef.current);
 
-    if (revealEffect !== 'draw') {
+    if (revealEffect !== 'draw' && revealEffect !== 'scribble') {
       // ── Non-draw effects: simple progress animation ──────────────────────
       if (!playing) {
         setProgress(1);
@@ -180,7 +202,7 @@ export default function AnimatedImageReveal({
       return () => { cancelAnimationFrame(rafRef.current); onTipMove?.({ active: false }); };
     }
 
-    // ── Draw effect ──────────────────────────────────────────────────────────
+    // ── Draw/Scribble effect ──────────────────────────────────────────────────
     if (!playing || !drawReady) {
       // Show full image statically
       const canvas = canvasRef.current;
@@ -242,7 +264,7 @@ export default function AnimatedImageReveal({
 
   // ── Resize canvas to match container ─────────────────────────────────────
   useEffect(() => {
-    if (revealEffect !== 'draw') return;
+    if (revealEffect !== 'draw' && revealEffect !== 'scribble') return;
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => {
@@ -261,7 +283,7 @@ export default function AnimatedImageReveal({
   }, [revealEffect, progress]);
 
   // ─────────────────────────────────────────────────────────────────────────
-  if (revealEffect === 'draw') {
+  if (revealEffect === 'draw' || revealEffect === 'scribble') {
     const imgOpacity = Math.max(0, Math.min(1, (progress - 0.7) / 0.3));
     return (
       <div
